@@ -1,0 +1,30 @@
+deviceinfo_codename="sweet"
+deviceinfo_manufacturer="Xiaomi"
+deviceinfo_name="Redmi Note 10 Pro"
+deviceinfo_arch="arm64"
+
+# Kernel
+deviceinfo_kernel_source="https://github.com/LineageOS/android_kernel_xiaomi_sm7150"
+deviceinfo_kernel_branch="lineage-24.0"
+deviceinfo_kernel_defconfig="sweet_defconfig"
+deviceinfo_kernel_image_name="Image"
+
+# Halium
+deviceinfo_halium_version="11.0"
+deviceinfo_bootimg_header_version="2"
+deviceinfo_dtb_partition="dtb"
+deviceinfo_dtb="qcom/sm7150-sweet.dtb"
+deviceinfo_dtbo="dtbo.img"
+
+# Partisi
+deviceinfo_flash_method="fastboot"
+deviceinfo_kernel_cmdline="console=ttyMSM0,115200n8 androidboot.hardware=sweet"
+deviceinfo_super_partitions="system vendor"
+
+# Fitur
+deviceinfo_has_camera=true
+deviceinfo_has_touchscreen=true
+deviceinfo_has_wifi=true
+deviceinfo_has_bluetooth=true
+deviceinfo_has_sdcard=false
+deviceinfo_usb_network=true
