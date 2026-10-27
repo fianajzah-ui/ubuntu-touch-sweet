@@ -1,6 +1,6 @@
 name: Build UT Sweet
 on:
-  workflow_dispatch:  # Bisa dijalankan manual kapan saja
+  workflow_dispatch:
   push:
     branches: [ main ]
 
@@ -8,40 +8,35 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: Setup Build Env
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global --add safe.directory '*'
+
+      - name: Install Dependencies
         run: |
           sudo apt update && sudo apt install -y bc bison build-essential curl flex git \
-            libssl-dev libelf-dev lz4 wget xz-utils zip python3 python2
-          
-      - name: Clone & Build Kernel
+            libssl-dev libelf-dev lz4 wget xz-utils zip python3 gcc-aarch64-linux-gnu \
+            gcc-arm-linux-gnueabihf make
+
+      - name: Clone Kernel Source
         run: |
-          git clone --depth=1 -b lineage-24.0 https://github.com/LineageOS/android_device_xiaomi_sweet.git kernel
+          git clone --depth=1 -b lineage-24.0 https://github.com/LineageOS/android_kernel_xiaomi_sm7150.git kernel
+          cd kernel && ls -la
+
+      - name: Download AOSP Clang Toolchain
+        run: |
+          wget -q "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master/clang-r487747.tar.gz" -O clang.tar.gz
+          mkdir clang
+          tar xf clang.tar.gz -C clang
+          echo "CLANG_DIR=$PWD/clang" >> $GITHUB_ENV
+
+      - name: Build Kernel
+        run: |
           cd kernel
-          
-          # Download toolchain
-          wget https://github.com/LineageOS/android_prebuilts_clang_kernel_toolchain/archive/refs/heads/main.tar.gz -O clang.tar.gz
-          tar xf clang.tar.gz
-          export PATH="$PATH:$PWD/main/bin"
-          
-          # Build
-          make -j$(nproc) CC=clang ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_ARM32=arm-linux-gnueabi- sweet_defconfig
-          make -j$(nproc) CC=clang ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-          
-      - name: Download Halium GSI & RootFS
-        run: |
-          wget https://github.com/Halium/gsi/releases/download/v10/halium_arm64.img -O halium.img
-          wget https://ubports.ubports.com/rootfs/ubuntu-touch/arm64/android10/ubuntu-touch-arm64-android10-latest.tar.gz -O rootfs.tar.gz
-          
-      - name: Upload Hasil
-        uses: actions/upload-artifact@v4
-        with:
-          name: hasil-build-sweet
-          path: |
-            kernel/arch/arm64/boot/Image
-            kernel/arch/arm64/boot/dtbo.img
-            kernel/arch/arm64/boot/dts/qcom/sm7150-sweet.dtb
-            halium.img
-            rootfs.tar.gz
-            
+          export PATH="$PWD/../clang/bin:$PATH"
+          make -j$(nproc) ARCH=arm64 CC=clang sweet_defconfig
+          make -j$(nproc) ARCH=arm64 CC=clang \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabihf-
