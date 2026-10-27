@@ -15,7 +15,7 @@ jobs:
           
       - name: Clone & Build Kernel
         run: |
-          git clone --depth=1 -b lineage-23 https://github.com/LineageOS/android_device_xiaomi_sweet.git kernel
+          git clone --depth=1 -b lineage-24.0 https://github.com/LineageOS/android_device_xiaomi_sweet.git kernel
           cd kernel
           
           # Download toolchain
