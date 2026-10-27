@@ -1,0 +1,47 @@
+name: Build UT Sweet
+on:
+  workflow_dispatch:  # Bisa dijalankan manual kapan saja
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Setup Build Env
+        run: |
+          sudo apt update && sudo apt install -y bc bison build-essential curl flex git \
+            libssl-dev libelf-dev lz4 wget xz-utils zip python3 python2
+          
+      - name: Clone & Build Kernel
+        run: |
+          git clone --depth=1 -b lineage-18.1 https://github.com/LineageOS/android_kernel_xiaomi_sm7150 kernel
+          cd kernel
+          
+          # Download toolchain
+          wget https://github.com/LineageOS/android_prebuilts_clang_kernel_toolchain/archive/refs/heads/main.tar.gz -O clang.tar.gz
+          tar xf clang.tar.gz
+          export PATH="$PATH:$PWD/main/bin"
+          
+          # Build
+          make -j$(nproc) CC=clang ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- sweet_defconfig
+          make -j$(nproc) CC=clang ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          
+      - name: Download Halium GSI & RootFS
+        run: |
+          wget https://github.com/Halium/gsi/releases/download/v10/halium_arm64.img -O halium.img
+          wget https://ubports.ubports.com/rootfs/ubuntu-touch/arm64/android10/ubuntu-touch-arm64-android10-latest.tar.gz -O rootfs.tar.gz
+          
+      - name: Upload Hasil
+        uses: actions/upload-artifact@v4
+        with:
+          name: hasil-build-sweet
+          path: |
+            kernel/arch/arm64/boot/Image
+            kernel/arch/arm64/boot/dtbo.img
+            kernel/arch/arm64/boot/dts/qcom/sm7150-sweet.dtb
+            halium.img
+            rootfs.tar.gz
+            
