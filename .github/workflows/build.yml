@@ -2,10 +2,10 @@ name: Build UT Sweet
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [ main, lineage-24.0 ]
 
 jobs:
-  build:
+  build-kernel:
     runs-on: ubuntu-22.04
     steps:
       - name: Configure Git
@@ -14,29 +14,34 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global --add safe.directory '*'
 
+      - name: Checkout Device Tree
+        uses: actions/checkout@v4
+
       - name: Install Dependencies
         run: |
           sudo apt update && sudo apt install -y bc bison build-essential curl flex git \
             libssl-dev libelf-dev lz4 wget xz-utils zip python3 gcc-aarch64-linux-gnu \
-            gcc-arm-linux-gnueabihf make
+            gcc-arm-linux-gnueabihf make clang llvm lld
 
       - name: Clone Kernel Source
         run: |
-          git clone --depth=1 -b lineage-24.0 https://github.com/LineageOS/android_device_xiaomi_sweet.git kernel
+          git clone --depth=1 -b lineage-24.0 https://github.com/LineageOS/android_kernel_xiaomi_sm7150.git kernel
           cd kernel && ls -la
-
-      - name: Download AOSP Clang Toolchain
-        run: |
-          wget -q "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master/clang-r487747.tar.gz" -O clang.tar.gz
-          mkdir clang
-          tar xf clang.tar.gz -C clang
-          echo "CLANG_DIR=$PWD/clang" >> $GITHUB_ENV
 
       - name: Build Kernel
         run: |
           cd kernel
-          export PATH="$PWD/../clang/bin:$PATH"
           make -j$(nproc) ARCH=arm64 CC=clang sweet_defconfig
           make -j$(nproc) ARCH=arm64 CC=clang \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabihf-
+
+      - name: Upload Kernel Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-sweet
+          path: |
+            kernel/arch/arm64/boot/Image
+            kernel/arch/arm64/boot/dtbo.img
+            kernel/arch/arm64/boot/dts/qcom/sm7150-sweet.dtb
+          retention-days: 30
