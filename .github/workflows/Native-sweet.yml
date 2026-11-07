@@ -1,0 +1,180 @@
+
+name: Native Sweet ARM64 Rootfs
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-sweet-rootfs
+  cancel-in-progress: true
+
+jobs:
+  build-rootfs:
+    name: Build Ubuntu Noble ARM64 + Lomiri
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup ARM64 QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Prepare output
+        run: mkdir -p out
+
+      - name: Build Ubuntu ARM64 rootfs
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          docker run --rm \
+            --platform linux/arm64 \
+            -v "$GITHUB_WORKSPACE/out:/out" \
+            ubuntu:24.04 \
+            bash -euxo pipefail -c '
+              export DEBIAN_FRONTEND=noninteractive
+
+              echo "=== CHECK ARCHITECTURE ==="
+              test "$(dpkg --print-architecture)" = arm64
+
+              echo "=== CONFIGURE UBUNTU ==="
+              apt-get update
+
+              apt-get install -y --no-install-recommends \
+                ca-certificates \
+                locales \
+                tzdata
+
+              locale-gen en_US.UTF-8
+
+              echo "=== INSTALL SYSTEM ==="
+              apt-get install -y \
+                systemd \
+                systemd-sysv \
+                dbus \
+                dbus-user-session \
+                sudo \
+                udev \
+                kmod \
+                initramfs-tools \
+                initramfs-tools-core \
+                network-manager \
+                iproute2 \
+                iputils-ping \
+                net-tools \
+                openssh-server \
+                curl \
+                wget \
+                git \
+                nano \
+                vim-tiny \
+                less \
+                bash-completion \
+                pciutils \
+                usbutils \
+                xz-utils \
+                zstd \
+                rsync \
+                parted \
+                e2fsprogs \
+                dosfstools
+
+              echo "=== INSTALL LOMIRI ==="
+              apt-get install -y lomiri
+
+              echo "=== CONFIGURE ROOTFS ==="
+              echo "ubuntu-sweet" > /etc/hostname
+
+              cat > /etc/hosts <<EOF
+              127.0.0.1 localhost
+              127.0.1.1 ubuntu-sweet
+              ::1 localhost ip6-localhost ip6-loopback
+              EOF
+
+              cat > /etc/locale.conf <<EOF
+              LANG=en_US.UTF-8
+              EOF
+
+              mkdir -p /etc/systemd/system
+
+              ln -sf /usr/share/zoneinfo/Asia/Jakarta \
+                /etc/localtime
+
+              echo "Asia/Jakarta" > /etc/timezone
+
+              passwd -l root
+
+              echo "=== VALIDATE PACKAGES ==="
+              dpkg --audit
+
+              dpkg-query -W \
+                -f="${Package} ${Version} ${Architecture}\n" \
+                systemd lomiri
+
+              test -x /lib/systemd/systemd
+              test -d /etc/systemd
+
+              echo "=== WRITE BUILD INFO ==="
+              {
+                echo "DEVICE=sweet"
+                echo "ARCH=arm64"
+                echo "OS=Ubuntu 24.04 Noble"
+                echo "DESKTOP=Lomiri"
+                echo "INIT=systemd"
+                echo "BUILD_TYPE=rootfs-only"
+                echo "FLASHABLE=no"
+                echo "DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+              } > /out/build-info.txt
+
+              echo "=== CLEAN APT ==="
+              apt-get clean
+              rm -rf /var/lib/apt/lists/*
+
+              echo "=== EXPORT ROOTFS ==="
+              tar \
+                --numeric-owner \
+                --xattrs \
+                --acls \
+                --exclude=./proc \
+                --exclude=./sys \
+                --exclude=./dev \
+                --exclude=./run \
+                --exclude=./tmp \
+                --exclude=./out \
+                -cpf /out/ubuntu-noble-sweet-arm64.tar \
+                -C / .
+
+              cd /out
+              sha256sum ubuntu-noble-sweet-arm64.tar \
+                > SHA256SUMS
+
+              echo "=== BUILD COMPLETE ==="
+              ls -lh /out
+            '
+
+      - name: Verify artifact
+        run: |
+          set -Eeuo pipefail
+          cd out
+          test -s ubuntu-noble-sweet-arm64.tar
+          sha256sum -c SHA256SUMS
+          cat build-info.txt
+
+      - name: Upload Ubuntu ARM64 RootFS
+        uses: actions/upload-artifact@v4
+        with:
+          name: ubuntu-noble-sweet-arm64-rootfs
+          path: |
+            out/ubuntu-noble-sweet-arm64.tar
+            out/SHA256SUMS
+            out/build-info.txt
+          if-no-files-found: error
+          retention-days: 14
+          
