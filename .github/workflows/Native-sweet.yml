@@ -48,43 +48,18 @@ jobs:
               apt-get update
 
               apt-get install -y --no-install-recommends \
-                ca-certificates \
-                locales \
-                tzdata
+                ca-certificates locales tzdata
 
               locale-gen en_US.UTF-8
 
               echo "=== INSTALL SYSTEM ==="
               apt-get install -y \
-                systemd \
-                systemd-sysv \
-                dbus \
-                dbus-user-session \
-                sudo \
-                udev \
-                kmod \
-                initramfs-tools \
-                initramfs-tools-core \
-                network-manager \
-                iproute2 \
-                iputils-ping \
-                net-tools \
-                openssh-server \
-                curl \
-                wget \
-                git \
-                nano \
-                vim-tiny \
-                less \
-                bash-completion \
-                pciutils \
-                usbutils \
-                xz-utils \
-                zstd \
-                rsync \
-                parted \
-                e2fsprogs \
-                dosfstools
+                systemd systemd-sysv dbus dbus-user-session \
+                sudo udev kmod initramfs-tools initramfs-tools-core \
+                network-manager iproute2 iputils-ping net-tools \
+                openssh-server curl wget git nano vim-tiny less \
+                bash-completion pciutils usbutils xz-utils zstd \
+                rsync parted e2fsprogs dosfstools
 
               echo "=== INSTALL LOMIRI ==="
               apt-get install -y lomiri
@@ -92,21 +67,17 @@ jobs:
               echo "=== CONFIGURE ROOTFS ==="
               echo "ubuntu-sweet" > /etc/hostname
 
-              cat > /etc/hosts <<EOF
-              127.0.0.1 localhost
-              127.0.1.1 ubuntu-sweet
-              ::1 localhost ip6-localhost ip6-loopback
-              EOF
+              printf "%s\n" \
+                "127.0.0.1 localhost" \
+                "127.0.1.1 ubuntu-sweet" \
+                "::1 localhost ip6-localhost ip6-loopback" \
+                > /etc/hosts
 
-              cat > /etc/locale.conf <<EOF
-              LANG=en_US.UTF-8
-              EOF
+              printf "%s\n" "LANG=en_US.UTF-8" > /etc/locale.conf
 
               mkdir -p /etc/systemd/system
 
-              ln -sf /usr/share/zoneinfo/Asia/Jakarta \
-                /etc/localtime
-
+              ln -sf /usr/share/zoneinfo/Asia/Jakarta /etc/localtime
               echo "Asia/Jakarta" > /etc/timezone
 
               passwd -l root
@@ -115,7 +86,7 @@ jobs:
               dpkg --audit
 
               dpkg-query -W \
-                -f="${Package} ${Version} ${Architecture}\n" \
+                -f='\''${Package} ${Version} ${Architecture}\n'\'' \
                 systemd lomiri
 
               test -x /lib/systemd/systemd
@@ -152,19 +123,20 @@ jobs:
                 -C / .
 
               cd /out
-              sha256sum ubuntu-noble-sweet-arm64.tar \
-                > SHA256SUMS
+              sha256sum ubuntu-noble-sweet-arm64.tar > SHA256SUMS
 
               echo "=== BUILD COMPLETE ==="
               ls -lh /out
             '
 
       - name: Verify artifact
+        shell: bash
         run: |
           set -Eeuo pipefail
           cd out
           test -s ubuntu-noble-sweet-arm64.tar
           sha256sum -c SHA256SUMS
+          test -s build-info.txt
           cat build-info.txt
 
       - name: Upload Ubuntu ARM64 RootFS
@@ -177,4 +149,3 @@ jobs:
             out/build-info.txt
           if-no-files-found: error
           retention-days: 14
-          
