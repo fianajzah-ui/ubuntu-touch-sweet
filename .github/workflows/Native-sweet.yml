@@ -81,11 +81,8 @@ jobs:
 
               passwd -l root
 
-              echo "=== PREPARE NATIVE MOUNTPOINTS ==="
+              echo "=== PREPARE MOUNTPOINTS ==="
               mkdir -p /proc /sys /dev /run /tmp
-
-              chmod 0755 /proc /dev /run
-              chmod 1777 /tmp
 
               echo "=== VALIDATE SYSTEM ==="
               dpkg --audit
@@ -96,11 +93,6 @@ jobs:
 
               test -x /lib/systemd/systemd
               test -d /etc/systemd
-              test -d /proc
-              test -d /sys
-              test -d /dev
-              test -d /run
-              test -d /tmp
               test -x /usr/bin/file
 
               echo "=== WRITE BUILD INFO ==="
@@ -119,31 +111,58 @@ jobs:
               apt-get clean
               rm -rf /var/lib/apt/lists/*
 
+              echo "=== PREPARE EMPTY MOUNTPOINTS ==="
+              mkdir -p /out/mountpoints
+              mkdir -p /out/mountpoints/proc
+              mkdir -p /out/mountpoints/sys
+              mkdir -p /out/mountpoints/dev
+              mkdir -p /out/mountpoints/run
+              mkdir -p /out/mountpoints/tmp
+
+              chmod 0755 \
+                /out/mountpoints/proc \
+                /out/mountpoints/sys \
+                /out/mountpoints/dev \
+                /out/mountpoints/run
+
+              chmod 1777 /out/mountpoints/tmp
+
               echo "=== EXPORT ROOTFS ==="
               tar \
                 --numeric-owner \
                 --xattrs \
                 --acls \
-                --exclude="./proc/*" \
-                --exclude="./sys/*" \
-                --exclude="./dev/*" \
-                --exclude="./run/*" \
-                --exclude="./tmp/*" \
-                --exclude="./out" \
+                --exclude=./proc \
+                --exclude=./sys \
+                --exclude=./dev \
+                --exclude=./run \
+                --exclude=./tmp \
+                --exclude=./out \
                 -cpf /out/ubuntu-noble-sweet-arm64.tar \
                 -C / .
 
+              echo "=== ADD EMPTY MOUNTPOINTS ==="
+              tar \
+                --numeric-owner \
+                --append \
+                -f /out/ubuntu-noble-sweet-arm64.tar \
+                -C /out/mountpoints \
+                proc sys dev run tmp
+
               echo "=== VERIFY MOUNTPOINTS ==="
+              tar -tf /out/ubuntu-noble-sweet-arm64.tar \
+                > /out/archive-list.txt
+
               for dir in proc sys dev run tmp; do
-                tar -tf /out/ubuntu-noble-sweet-arm64.tar \
-                  "./${dir}" "./${dir}/" >/dev/null
+                grep -Eq "^(\./)?${dir}/?$" /out/archive-list.txt
               done
 
+              echo "=== CREATE CHECKSUM ==="
               cd /out
               sha256sum ubuntu-noble-sweet-arm64.tar > SHA256SUMS
 
               echo "=== BUILD COMPLETE ==="
-              ls -lh /out
+              ls -lh ubuntu-noble-sweet-arm64.tar
             '
 
       - name: Verify RootFS artifact
@@ -161,8 +180,7 @@ jobs:
           tar -tf ubuntu-noble-sweet-arm64.tar > archive-list.txt
 
           for dir in proc sys dev run tmp; do
-            grep -Fx "./$dir/" archive-list.txt \
-              || grep -Fx "./$dir" archive-list.txt
+            grep -Eq "^(\./)?${dir}/?$" archive-list.txt
           done
 
           echo "=== BUILD INFO ==="
