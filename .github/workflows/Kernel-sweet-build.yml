@@ -94,6 +94,37 @@ jobs:
 
           git -C kernel rev-parse HEAD > kernel-commit.txt
 
+      - name: Fix q6asm format error
+        run: |
+          set -e
+
+          FILE="kernel/techpack/audio/dsp/q6asm.c"
+
+          python3 - "$FILE" <<'PY'
+          import pathlib
+          import sys
+
+          path = pathlib.Path(sys.argv[1])
+          source = path.read_text()
+
+          old = 'payload size of %d is less than expected %d.'
+          new = 'payload size of %d is less than expected %zu.'
+
+          if new in source:
+              print("q6asm format fix already applied")
+          elif source.count(old) == 1:
+              source = source.replace(old, new, 1)
+              path.write_text(source)
+              print("q6asm format error fixed")
+          else:
+              raise SystemExit(
+                  "ERROR: Expected q6asm format string not found exactly once"
+              )
+
+          if new not in path.read_text():
+              raise SystemExit("ERROR: q6asm format fix verification failed")
+          PY
+
       - name: Prepare GCC compatibility wrapper
         run: |
           set -e
