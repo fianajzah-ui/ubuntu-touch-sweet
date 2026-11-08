@@ -28,26 +28,42 @@ jobs:
             git bc bison flex build-essential \
             gcc-aarch64-linux-gnu \
             binutils-aarch64-linux-gnu \
-            clang lld \
+            clang-18 llvm-18 llvm-18-tools lld-18 \
             libssl-dev libelf-dev libncurses-dev \
             python3 python-is-python3 \
             dwarves device-tree-compiler
 
-      - name: Verify toolchain
+      - name: Prepare and verify LLVM tools
         run: |
           set -e
 
-          echo "Checking GCC..."
-          aarch64-linux-gnu-gcc --version
+          for tool in llvm-nm llvm-ar llvm-objdump; do
+            if ! command -v "$tool" >/dev/null 2>&1; then
+              versioned="${tool}-18"
 
-          echo "Checking LLD..."
-          command -v ld.lld
-          ld.lld --version
+              if ! command -v "$versioned" >/dev/null 2>&1; then
+                echo "ERROR: $versioned is missing"
+                exit 1
+              fi
 
-          echo "Checking LLVM..."
-          clang --version
+              sudo ln -sf "$(command -v "$versioned")" "/usr/local/bin/$tool"
+            fi
+          done
 
-          echo "TOOLCHAIN VERIFIED"
+          command -v llvm-nm
+          command -v llvm-ar
+          command -v llvm-objdump
+          command -v ld.lld-18
+          command -v clang-18
+          command -v aarch64-linux-gnu-gcc
+
+          llvm-nm --version
+          llvm-ar --version
+          llvm-objdump --version
+          ld.lld-18 --version
+          clang-18 --version
+
+          echo "LLVM TOOLCHAIN VERIFIED"
 
       - name: Download audited Sweet kernel source
         run: |
@@ -179,12 +195,20 @@ jobs:
 
           test -s "$CONFIG"
 
-          grep -qx 'CONFIG_DEVTMPFS=y' "$CONFIG"
-          grep -qx 'CONFIG_DEVTMPFS_MOUNT=y' "$CONFIG"
-          grep -qx 'CONFIG_FUSE_FS=y' "$CONFIG"
-          grep -qx 'CONFIG_MACH_XIAOMI_SWEET=y' "$CONFIG"
-          grep -qx 'CONFIG_TOUCHSCREEN_GOODIX_GTX9896_I2C=y' "$CONFIG"
-          grep -qx 'CONFIG_TOUCHSCREEN_FTS_K6=y' "$CONFIG"
+          for symbol in \
+            CONFIG_DEVTMPFS \
+            CONFIG_DEVTMPFS_MOUNT \
+            CONFIG_FUSE_FS \
+            CONFIG_MACH_XIAOMI_SWEET \
+            CONFIG_TOUCHSCREEN_GOODIX_GTX9896_I2C \
+            CONFIG_TOUCHSCREEN_FTS_K6
+          do
+            if ! grep -qx "${symbol}=y" "$CONFIG"; then
+              echo "ERROR: $symbol is not enabled"
+              grep -E "^${symbol}=" "$CONFIG" || true
+              exit 1
+            fi
+          done
 
           echo "SWEET NATIVE CONFIGURATION VERIFIED"
 
@@ -203,7 +227,7 @@ jobs:
             HOSTCC=gcc \
             CROSS_COMPILE=aarch64-linux-gnu- \
             LLVM=0 \
-            LD=ld.lld \
+            LD=ld.lld-18 \
             KCFLAGS="-Wno-error=maybe-uninitialized -Wno-error=address" \
             Image.gz dtbs
 
@@ -244,7 +268,7 @@ jobs:
             aarch64-linux-gnu-gcc --version
             echo
             echo "Linker:"
-            ld.lld --version
+            ld.lld-18 --version
             echo
             echo "Kernel image:"
             ls -lh "$DIST/Image.gz"
