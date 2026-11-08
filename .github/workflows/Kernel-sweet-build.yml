@@ -20,14 +20,34 @@ jobs:
     steps:
       - name: Install build dependencies
         run: |
+          set -e
+
           sudo apt-get update
+
           sudo apt-get install -y \
             git bc bison flex build-essential \
             gcc-aarch64-linux-gnu \
             binutils-aarch64-linux-gnu \
+            clang lld \
             libssl-dev libelf-dev libncurses-dev \
             python3 python-is-python3 \
             dwarves device-tree-compiler
+
+      - name: Verify toolchain
+        run: |
+          set -e
+
+          echo "Checking GCC..."
+          aarch64-linux-gnu-gcc --version
+
+          echo "Checking LLD..."
+          command -v ld.lld
+          ld.lld --version
+
+          echo "Checking LLVM..."
+          clang --version
+
+          echo "TOOLCHAIN VERIFIED"
 
       - name: Download audited Sweet kernel source
         run: |
@@ -70,13 +90,9 @@ jobs:
 
           chmod +x "$GITHUB_WORKSPACE/toolchain/aarch64-gcc-wrapper"
 
-          CC_WRAPPER="$GITHUB_WORKSPACE/toolchain/aarch64-gcc-wrapper"
-
-          echo "Testing GCC wrapper..."
-
           printf 'int test(void) { return 0; }\n' > test.c
 
-          "$CC_WRAPPER" \
+          "$GITHUB_WORKSPACE/toolchain/aarch64-gcc-wrapper" \
             -mno-implicit-float \
             -c test.c -o test.o
 
@@ -166,7 +182,7 @@ jobs:
           grep -qx 'CONFIG_FUSE_FS=y' "$CONFIG"
           grep -qx 'CONFIG_MACH_XIAOMI_SWEET=y' "$CONFIG"
           grep -qx 'CONFIG_TOUCHSCREEN_GOODIX_GTX9896_I2C=y' "$CONFIG"
-          grep -qx 'CONFIG_TOUCHSCREEN_FTS_K6=y' "$CONFIG"
+          grep -qx 'CONFIG_TOUCHSCREEN_FTS_K6=y'
 
           echo "SWEET NATIVE CONFIGURATION VERIFIED"
 
@@ -185,6 +201,7 @@ jobs:
             HOSTCC=gcc \
             CROSS_COMPILE=aarch64-linux-gnu- \
             LLVM=0 \
+            LD=ld.lld \
             KCFLAGS="-Wno-error=maybe-uninitialized -Wno-error=address" \
             Image.gz dtbs
 
@@ -223,6 +240,9 @@ jobs:
             echo
             echo "Compiler:"
             aarch64-linux-gnu-gcc --version
+            echo
+            echo "Linker:"
+            ld.lld --version
             echo
             echo "Kernel image:"
             ls -lh "$DIST/Image.gz"
