@@ -241,7 +241,7 @@ jobs:
             CROSS_COMPILE=aarch64-linux-gnu- \
             LLVM=0 \
             LD=ld.lld-18 \
-            KCFLAGS="-Wno-error=maybe-uninitialized -Wno-error=address" \
+            KCFLAGS="-Wno-error=maybe-uninitialized -Wno-error=address -Wno-error=format" \
             Image.gz dtbs
 
           echo "KERNEL COMPILATION FINISHED"
