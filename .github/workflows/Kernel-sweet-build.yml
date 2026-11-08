@@ -177,12 +177,14 @@ jobs:
 
           CONFIG="$GITHUB_WORKSPACE/kernel-out/.config"
 
+          test -s "$CONFIG"
+
           grep -qx 'CONFIG_DEVTMPFS=y' "$CONFIG"
           grep -qx 'CONFIG_DEVTMPFS_MOUNT=y' "$CONFIG"
           grep -qx 'CONFIG_FUSE_FS=y' "$CONFIG"
           grep -qx 'CONFIG_MACH_XIAOMI_SWEET=y' "$CONFIG"
           grep -qx 'CONFIG_TOUCHSCREEN_GOODIX_GTX9896_I2C=y' "$CONFIG"
-          grep -qx 'CONFIG_TOUCHSCREEN_FTS_K6=y'
+          grep -qx 'CONFIG_TOUCHSCREEN_FTS_K6=y' "$CONFIG"
 
           echo "SWEET NATIVE CONFIGURATION VERIFIED"
 
