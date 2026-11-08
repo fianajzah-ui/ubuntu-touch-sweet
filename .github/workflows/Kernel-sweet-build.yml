@@ -43,10 +43,38 @@ jobs:
 
           git -C kernel checkout FETCH_HEAD
 
-          git -C kernel rev-parse HEAD \
-            > kernel-commit.txt
+          git -C kernel rev-parse HEAD > kernel-commit.txt
 
-          echo "Kernel source downloaded successfully"
+      - name: Fix compiler compatibility
+        run: |
+          set -e
+
+          FILE="kernel/include/linux/compiler_types.h"
+
+          python3 - "$FILE" <<'PY'
+          import pathlib
+          import sys
+
+          path = pathlib.Path(sys.argv[1])
+          source = path.read_text()
+
+          marker = "#if __has_attribute(__fallthrough__)"
+
+          fallback = (
+              "#ifndef __has_attribute\n"
+              "#define __has_attribute(x) 0\n"
+              "#endif\n\n"
+          )
+
+          if marker not in source:
+              raise SystemExit("ERROR: Expected compiler macro not found")
+
+          if "#ifndef __has_attribute" not in source:
+              source = source.replace(marker, fallback + marker, 1)
+              path.write_text(source)
+
+          print("Compiler compatibility fallback applied")
+          PY
 
       - name: Prepare Sweet native configuration
         run: |
@@ -146,14 +174,14 @@ jobs:
             echo "Kernel image:"
             ls -lh "$DIST/Image.gz"
             echo
-            echo "Device tree archive:"
+            echo "Device trees:"
             if [ -f "$DIST/device-trees.tar.gz" ]; then
               ls -lh "$DIST/device-trees.tar.gz"
             else
               echo "DTB archive not found"
             fi
             echo
-            echo "Configuration:"
+            echo "Native configuration:"
             grep -E '^(CONFIG_DEVTMPFS|CONFIG_DEVTMPFS_MOUNT|CONFIG_FUSE_FS|CONFIG_MACH_XIAOMI_SWEET)=' \
               "$DIST/kernel.config"
           } > "$DIST/build-report.txt"
