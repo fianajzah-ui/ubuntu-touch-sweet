@@ -112,12 +112,7 @@ jobs:
               rm -rf /var/lib/apt/lists/*
 
               echo "=== PREPARE EMPTY MOUNTPOINTS ==="
-              mkdir -p /out/mountpoints
-              mkdir -p /out/mountpoints/proc
-              mkdir -p /out/mountpoints/sys
-              mkdir -p /out/mountpoints/dev
-              mkdir -p /out/mountpoints/run
-              mkdir -p /out/mountpoints/tmp
+              mkdir -p /out/mountpoints/{proc,sys,dev,run,tmp}
 
               chmod 0755 \
                 /out/mountpoints/proc \
@@ -149,12 +144,11 @@ jobs:
                 -C /out/mountpoints \
                 proc sys dev run tmp
 
-              echo "=== VERIFY MOUNTPOINTS ==="
-              tar -tf /out/ubuntu-noble-sweet-arm64.tar \
-                > /out/archive-list.txt
-
+              echo "=== VERIFY ARCHIVE ==="
               for dir in proc sys dev run tmp; do
-                grep -Eq "^(\./)?${dir}/?$" /out/archive-list.txt
+                tar -tf /out/ubuntu-noble-sweet-arm64.tar \
+                  "./${dir}" "./${dir}/" \
+                  >/dev/null
               done
 
               echo "=== CREATE CHECKSUM ==="
@@ -177,10 +171,12 @@ jobs:
 
           sha256sum -c SHA256SUMS
 
-          tar -tf ubuntu-noble-sweet-arm64.tar > archive-list.txt
-
+          echo "=== VERIFY MOUNTPOINTS ==="
           for dir in proc sys dev run tmp; do
-            grep -Eq "^(\./)?${dir}/?$" archive-list.txt
+            tar -tf ubuntu-noble-sweet-arm64.tar \
+              "./${dir}" "./${dir}/" \
+              >/dev/null
+            echo "$dir OK"
           done
 
           echo "=== BUILD INFO ==="
