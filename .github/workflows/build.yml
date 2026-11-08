@@ -32,9 +32,6 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/out"
           chmod 0777 "$GITHUB_WORKSPACE/out"
 
-          echo "=== HOST OUTPUT DIRECTORY ==="
-          ls -ld "$GITHUB_WORKSPACE/out"
-
       - name: Build Ubuntu ARM64 RootFS
         run: |
           set -Eeuo pipefail
@@ -49,10 +46,9 @@ jobs:
               export TZ=Asia/Jakarta
               umask 022
 
-              echo "=== CHECK DOCKER OUTPUT MOUNT ==="
+              echo "=== CHECK OUTPUT MOUNT ==="
               ls -ld /out
               touch /out/docker-write-test
-              ls -lah /out
 
               echo "=== UPDATE UBUNTU ==="
               apt-get update
@@ -97,19 +93,19 @@ jobs:
               apt-get install -y lomiri
 
               echo "=== CONFIGURE ROOTFS ==="
-              echo "sweet" > /etc/hostname
+              printf "%s\n" "sweet" > /etc/hostname
 
-              cat > /etc/hosts << "EOF"
-              127.0.0.1 localhost
-              127.0.1.1 sweet
-              ::1 localhost ip6-localhost ip6-loopback
-              EOF
+              printf "%s\n" \
+                "127.0.0.1 localhost" \
+                "127.0.1.1 sweet" \
+                "::1 localhost ip6-localhost ip6-loopback" \
+                > /etc/hosts
 
               locale-gen en_US.UTF-8
               update-locale LANG=en_US.UTF-8
 
               ln -sf /usr/share/zoneinfo/Asia/Jakarta /etc/localtime
-              echo "Asia/Jakarta" > /etc/timezone
+              printf "%s\n" "Asia/Jakarta" > /etc/timezone
 
               passwd -l root || true
 
@@ -118,23 +114,15 @@ jobs:
               chmod 1777 /tmp
 
               echo "=== CREATE BUILD INFO ==="
-              cat > /out/build-info.txt << EOF
-              DEVICE=sweet
-              ARCH=arm64
-              OS=Ubuntu 24.04 Noble
-              DESKTOP=Lomiri
-              INIT=systemd
-              BUILD_TYPE=rootfs-only
-              FLASHABLE=no
-              DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-              EOF
+              printf "DEVICE=sweet\nARCH=arm64\nOS=Ubuntu 24.04 Noble\nDESKTOP=Lomiri\nINIT=systemd\nBUILD_TYPE=rootfs-only\nFLASHABLE=no\nDATE=%s\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > /out/build-info.txt
 
               echo "=== PREPARE MOUNTPOINTS ==="
-              mkdir -p /out/mountpoints/proc
-              mkdir -p /out/mountpoints/sys
-              mkdir -p /out/mountpoints/dev
-              mkdir -p /out/mountpoints/run
-              mkdir -p /out/mountpoints/tmp
+              mkdir -p \
+                /out/mountpoints/proc \
+                /out/mountpoints/sys \
+                /out/mountpoints/dev \
+                /out/mountpoints/run \
+                /out/mountpoints/tmp
 
               chmod 0755 \
                 /out/mountpoints/proc \
@@ -166,7 +154,7 @@ jobs:
                 -C /out/mountpoints \
                 proc sys dev run tmp
 
-              echo "=== VERIFY INSIDE DOCKER ==="
+              echo "=== VERIFY ROOTFS INSIDE DOCKER ==="
               test -s /out/ubuntu-noble-sweet-arm64.tar
               test -s /out/build-info.txt
 
@@ -182,8 +170,6 @@ jobs:
 
               echo "=== DOCKER OUTPUT FILES ==="
               ls -lah /out
-              stat /out/ubuntu-noble-sweet-arm64.tar
-              stat /out/build-info.txt
 
               echo "=== ROOTFS EXPORT COMPLETED ==="
             '
@@ -192,38 +178,22 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          echo "=== HOST WORKSPACE ==="
-          echo "$GITHUB_WORKSPACE"
-
           echo "=== HOST OUTPUT DIRECTORY ==="
           ls -lah "$GITHUB_WORKSPACE/out"
 
           echo "=== CHECK DOCKER WRITE TEST ==="
-          if [ -f "$GITHUB_WORKSPACE/out/docker-write-test" ]; then
-            echo "Docker bind mount: OK"
-          else
-            echo "ERROR: Docker output mount tidak terbaca oleh Runner"
-            exit 1
-          fi
+          test -f "$GITHUB_WORKSPACE/out/docker-write-test"
+          echo "Docker bind mount: OK"
 
-          echo "=== CHECK ROOTFS FILE ==="
-          if [ -s "$GITHUB_WORKSPACE/out/ubuntu-noble-sweet-arm64.tar" ]; then
-            echo "RootFS TAR: FOUND"
-            ls -lh "$GITHUB_WORKSPACE/out/ubuntu-noble-sweet-arm64.tar"
-          else
-            echo "ERROR: RootFS TAR tidak ditemukan atau kosong"
-            find "$GITHUB_WORKSPACE/out" -maxdepth 3 -type f -printf '%p (%s bytes)\n'
-            exit 1
-          fi
+          echo "=== CHECK ROOTFS TAR ==="
+          test -s "$GITHUB_WORKSPACE/out/ubuntu-noble-sweet-arm64.tar"
+          ls -lh "$GITHUB_WORKSPACE/out/ubuntu-noble-sweet-arm64.tar"
 
           echo "=== CHECK BUILD INFO ==="
-          if [ -s "$GITHUB_WORKSPACE/out/build-info.txt" ]; then
-            echo "Build info: FOUND"
-            cat "$GITHUB_WORKSPACE/out/build-info.txt"
-          else
-            echo "ERROR: build-info.txt tidak ditemukan atau kosong"
-            exit 1
-          fi
+          test -s "$GITHUB_WORKSPACE/out/build-info.txt"
+          cat "$GITHUB_WORKSPACE/out/build-info.txt"
+
+          echo "=== HOST OUTPUT CHECK PASSED ==="
 
       - name: Create Checksum and Verify RootFS
         run: |
@@ -241,7 +211,7 @@ jobs:
           archive_listing="$(tar -tf ubuntu-noble-sweet-arm64.tar)"
 
           for dir in proc sys dev run tmp; do
-            if ! printf '%s\n' "$archive_listing" | grep -Eq "^(\./)?${dir}/?$"; then
+            if ! printf "%s\n" "$archive_listing" | grep -Eq "^(\./)?${dir}/?$"; then
               echo "ERROR: Mountpoint $dir tidak ditemukan!"
               exit 1
             fi
