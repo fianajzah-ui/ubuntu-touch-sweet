@@ -1,0 +1,111 @@
+
+name: Sweet Kernel Config Audit
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sweet-kernel-audit
+  cancel-in-progress: true
+
+jobs:
+  kernel-config:
+    name: Audit ARM64 Kernel Config
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git build-essential bc bison flex \
+            libssl-dev libelf-dev python3 \
+            python-is-python3 clang lld llvm
+
+      - name: Clone Sweet kernel source
+        run: |
+          git clone --depth=1 \
+            --branch lineage-23.2 \
+            https://github.com/LineageOS/android_kernel_xiaomi_sm6150.git \
+            kernel
+
+          cd kernel
+          git rev-parse HEAD > ../kernel-commit.txt
+
+      - name: Prepare kernel configuration
+        working-directory: kernel
+        run: |
+          set -e
+
+          OUT="$GITHUB_WORKSPACE/kernel-out"
+          mkdir -p "$OUT"
+
+          make O="$OUT" ARCH=arm64 LLVM=1 \
+            vendor/sdmsteppe-perf_defconfig
+
+          scripts/kconfig/merge_config.sh \
+            -m -O "$OUT" \
+            "$OUT/.config" \
+            arch/arm64/configs/vendor/sweet.config
+
+          cat > "$GITHUB_WORKSPACE/native.config" <<'EOF'
+          CONFIG_DEVTMPFS=y
+          CONFIG_DEVTMPFS_MOUNT=y
+          CONFIG_FUSE_FS=y
+          EOF
+
+          scripts/kconfig/merge_config.sh \
+            -m -O "$OUT" \
+            "$OUT/.config" \
+            "$GITHUB_WORKSPACE/native.config"
+
+          make O="$OUT" ARCH=arm64 LLVM=1 olddefconfig
+
+      - name: Verify final configuration
+        id: verify
+        run: |
+          set -e
+
+          CONFIG="$GITHUB_WORKSPACE/kernel-out/.config"
+          REPORT="$GITHUB_WORKSPACE/config-report.txt"
+
+          {
+            echo "Sweet ARM64 Kernel Configuration Audit"
+            echo "======================================"
+            echo
+            echo "Kernel source:"
+            cat kernel-commit.txt
+            echo
+            echo "Kernel version:"
+            grep -E '^CONFIG_LOCALVERSION=' "$CONFIG" || true
+            echo
+            echo "Required native options:"
+            grep -E '^(CONFIG_DEVTMPFS|CONFIG_DEVTMPFS_MOUNT|CONFIG_FUSE_FS)=' "$CONFIG" || true
+            echo
+            echo "Sweet hardware options:"
+            grep -E '^(CONFIG_MACH_XIAOMI_SWEET|CONFIG_TOUCHSCREEN_GOODIX_GTX9896_I2C|CONFIG_TOUCHSCREEN_FTS_K6)=' "$CONFIG" || true
+          } | tee "$REPORT"
+
+          grep -qx 'CONFIG_DEVTMPFS=y' "$CONFIG"
+          grep -qx 'CONFIG_DEVTMPFS_MOUNT=y' "$CONFIG"
+          grep -qx 'CONFIG_FUSE_FS=y' "$CONFIG"
+          grep -qx 'CONFIG_MACH_XIAOMI_SWEET=y' "$CONFIG"
+          grep -qx 'CONFIG_TOUCHSCREEN_GOODIX_GTX9896_I2C=y' "$CONFIG"
+          grep -qx 'CONFIG_TOUCHSCREEN_FTS_K6=y' "$CONFIG"
+
+          echo "CONFIG AUDIT PASSED"
+
+      - name: Upload audit results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sweet-kernel-config-audit
+          path: |
+            config-report.txt
+            kernel-commit.txt
+            kernel-out/.config
+          if-no-files-found: warn
+          retention-days: 14
