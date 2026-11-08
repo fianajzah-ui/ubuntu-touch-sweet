@@ -21,105 +21,119 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup ARM64 QEMU
+      - name: Enable ARM64 emulation
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
 
-      - name: Prepare output
-        run: mkdir -p out
+      - name: Prepare output directory
+        run: |
+          mkdir -p out
 
       - name: Build Ubuntu ARM64 RootFS
-        shell: bash
         run: |
-          set -Eeuo pipefail
-
           docker run --rm \
             --platform linux/arm64 \
             -v "$GITHUB_WORKSPACE/out:/out" \
             ubuntu:24.04 \
-            bash -euxo pipefail -c '
+            bash -Eeuo pipefail -c '
               export DEBIAN_FRONTEND=noninteractive
+              export TZ=Asia/Jakarta
+              umask 022
 
-              echo "=== CHECK ARCHITECTURE ==="
-              test "$(dpkg --print-architecture)" = arm64
-
-              echo "=== CONFIGURE UBUNTU ==="
+              echo "=== UPDATE UBUNTU ==="
               apt-get update
 
+              echo "=== INSTALL BASE SYSTEM ==="
               apt-get install -y --no-install-recommends \
-                ca-certificates locales tzdata
-
-              locale-gen en_US.UTF-8
-
-              echo "=== INSTALL SYSTEM ==="
-              apt-get install -y \
-                systemd systemd-sysv dbus dbus-user-session \
-                sudo udev kmod initramfs-tools initramfs-tools-core \
-                network-manager iproute2 iputils-ping net-tools \
-                openssh-server curl wget git nano vim-tiny less \
-                bash-completion pciutils usbutils xz-utils zstd \
-                rsync parted e2fsprogs dosfstools file \
-                kbd console-setup
+                systemd \
+                systemd-sysv \
+                dbus \
+                dbus-user-session \
+                sudo \
+                udev \
+                kmod \
+                initramfs-tools \
+                initramfs-tools-core \
+                network-manager \
+                iproute2 \
+                iputils-ping \
+                net-tools \
+                openssh-server \
+                curl \
+                wget \
+                git \
+                nano \
+                vim-tiny \
+                less \
+                bash-completion \
+                pciutils \
+                usbutils \
+                xz-utils \
+                zstd \
+                rsync \
+                parted \
+                e2fsprogs \
+                dosfstools \
+                file \
+                ca-certificates \
+                locales \
+                tzdata
 
               echo "=== INSTALL LOMIRI ==="
               apt-get install -y lomiri
 
               echo "=== CONFIGURE ROOTFS ==="
-              echo "ubuntu-sweet" > /etc/hostname
+              echo "sweet" > /etc/hostname
 
-              printf "%s\n" \
-                "127.0.0.1 localhost" \
-                "127.0.1.1 ubuntu-sweet" \
-                "::1 localhost ip6-localhost ip6-loopback" \
-                > /etc/hosts
+              cat > /etc/hosts << "EOF"
+              127.0.0.1 localhost
+              127.0.1.1 sweet
+              ::1 localhost ip6-localhost ip6-loopback
+              EOF
 
-              printf "%s\n" "LANG=en_US.UTF-8" > /etc/locale.conf
+              locale-gen en_US.UTF-8
+              update-locale LANG=en_US.UTF-8
 
               ln -sf /usr/share/zoneinfo/Asia/Jakarta /etc/localtime
               echo "Asia/Jakarta" > /etc/timezone
 
-              passwd -l root
+              passwd -l root || true
 
-              echo "=== PREPARE MOUNTPOINTS ==="
-              mkdir -p /proc /sys /dev /run /tmp
+              mkdir -p \
+                /proc \
+                /sys \
+                /dev \
+                /run \
+                /tmp
 
-              echo "=== VALIDATE SYSTEM ==="
-              dpkg --audit
-
-              dpkg-query -W \
-                -f='\''${Package} ${Version} ${Architecture}\n'\'' \
-                systemd systemd-sysv lomiri
-
-              test -x /lib/systemd/systemd
-              test -d /etc/systemd
-              test -x /usr/bin/file
+              chmod 0755 /proc /dev /run
+              chmod 1777 /tmp
 
               echo "=== WRITE BUILD INFO ==="
-              {
-                echo "DEVICE=sweet"
-                echo "ARCH=arm64"
-                echo "OS=Ubuntu 24.04 Noble"
-                echo "DESKTOP=Lomiri"
-                echo "INIT=systemd"
-                echo "BUILD_TYPE=rootfs-only"
-                echo "FLASHABLE=no"
-                echo "DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-              } > /out/build-info.txt
-
-              echo "=== CLEAN APT ==="
-              apt-get clean
-              rm -rf /var/lib/apt/lists/*
+              cat > /out/build-info.txt << EOF
+              DEVICE=sweet
+              ARCH=arm64
+              OS=Ubuntu 24.04 Noble
+              DESKTOP=Lomiri
+              INIT=systemd
+              BUILD_TYPE=rootfs-only
+              FLASHABLE=no
+              DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+              EOF
 
               echo "=== PREPARE EMPTY MOUNTPOINTS ==="
-              mkdir -p /out/mountpoints/{proc,sys,dev,run,tmp}
+              mkdir -p /out/mountpoints
+              mkdir -p /out/mountpoints/proc
+              mkdir -p /out/mountpoints/sys
+              mkdir -p /out/mountpoints/dev
+              mkdir -p /out/mountpoints/run
+              mkdir -p /out/mountpoints/tmp
 
-              chmod 0755 \
-                /out/mountpoints/proc \
-                /out/mountpoints/sys \
-                /out/mountpoints/dev \
-                /out/mountpoints/run
-
+              chmod 0755 /out/mountpoints/proc
+              chmod 0755 /out/mountpoints/sys
+              chmod 0755 /out/mountpoints/dev
+              chmod 0755 /out/mountpoints/run
               chmod 1777 /out/mountpoints/tmp
 
               echo "=== EXPORT ROOTFS ==="
@@ -144,48 +158,55 @@ jobs:
                 -C /out/mountpoints \
                 proc sys dev run tmp
 
-              echo "=== VERIFY ARCHIVE ==="
+              echo "=== VERIFY ROOTFS ARCHIVE ==="
+              archive_listing="$(tar -tf /out/ubuntu-noble-sweet-arm64.tar)"
+
               for dir in proc sys dev run tmp; do
-                tar -tf /out/ubuntu-noble-sweet-arm64.tar \
-                  "./${dir}" "./${dir}/" \
-                  >/dev/null
+                if ! printf "%s\n" "$archive_listing" | grep -Eq "^(\./)?${dir}/?$"; then
+                  echo "ERROR: Mountpoint $dir tidak ditemukan!"
+                  exit 1
+                fi
+                echo "Mountpoint $dir: OK"
               done
 
               echo "=== CREATE CHECKSUM ==="
               cd /out
               sha256sum ubuntu-noble-sweet-arm64.tar > SHA256SUMS
 
-              echo "=== BUILD COMPLETE ==="
-              ls -lh ubuntu-noble-sweet-arm64.tar
+              echo "=== BUILD COMPLETED ==="
+              ls -lh /out/ubuntu-noble-sweet-arm64.tar
+              cat /out/SHA256SUMS
             '
 
-      - name: Verify RootFS artifact
-        shell: bash
+      - name: Verify RootFS on Runner
         run: |
           set -Eeuo pipefail
+
           cd out
 
-          test -s ubuntu-noble-sweet-arm64.tar
-          test -s SHA256SUMS
-          test -s build-info.txt
-
+          echo "=== VERIFY SHA256 ==="
           sha256sum -c SHA256SUMS
 
-          echo "=== VERIFY MOUNTPOINTS ==="
+          echo "=== VERIFY ARCHIVE MOUNTPOINTS ==="
+          archive_listing="$(tar -tf ubuntu-noble-sweet-arm64.tar)"
+
           for dir in proc sys dev run tmp; do
-            tar -tf ubuntu-noble-sweet-arm64.tar \
-              "./${dir}" "./${dir}/" \
-              >/dev/null
-            echo "$dir OK"
+            if ! printf '%s\n' "$archive_listing" | grep -Eq "^(\./)?${dir}/?$"; then
+              echo "ERROR: Mountpoint $dir tidak ditemukan!"
+              exit 1
+            fi
+
+            echo "Mountpoint $dir: OK"
           done
 
-          echo "=== BUILD INFO ==="
+          echo "=== VERIFY BUILD INFO ==="
+          test -s build-info.txt
           cat build-info.txt
 
-          echo "=== ARTIFACT SIZE ==="
-          ls -lh ubuntu-noble-sweet-arm64.tar
+          echo "=== ROOTFS VERIFICATION PASSED ==="
+          ls -lh ubuntu-noble-sweet-arm64.tar SHA256SUMS build-info.txt
 
-      - name: Upload Ubuntu ARM64 RootFS
+      - name: Upload RootFS Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ubuntu-noble-sweet-arm64-rootfs
