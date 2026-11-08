@@ -45,16 +45,56 @@ jobs:
 
           git -C kernel rev-parse HEAD > kernel-commit.txt
 
-      - name: Fix compiler compatibility
+      - name: Prepare GCC compatibility wrapper
         run: |
           set -e
 
-          cd kernel
+          mkdir -p "$GITHUB_WORKSPACE/toolchain"
 
-          python3 - <<'PY'
-          from pathlib import Path
+          cat > "$GITHUB_WORKSPACE/toolchain/aarch64-gcc-wrapper" <<'EOF'
+          #!/usr/bin/env bash
+          set -e
 
-          path = Path("include/linux/compiler_types.h")
+          args=()
+
+          for arg in "$@"; do
+            if [ "$arg" = "-mno-implicit-float" ]; then
+              args+=("-mgeneral-regs-only")
+            else
+              args+=("$arg")
+            fi
+          done
+
+          exec aarch64-linux-gnu-gcc "${args[@]}"
+          EOF
+
+          chmod +x "$GITHUB_WORKSPACE/toolchain/aarch64-gcc-wrapper"
+
+          CC_WRAPPER="$GITHUB_WORKSPACE/toolchain/aarch64-gcc-wrapper"
+
+          echo "Testing GCC wrapper..."
+
+          printf 'int test(void) { return 0; }\n' > test.c
+
+          "$CC_WRAPPER" \
+            -mno-implicit-float \
+            -c test.c -o test.o
+
+          test -s test.o
+
+          echo "GCC WRAPPER TEST PASSED"
+
+      - name: Fix compiler macro compatibility
+        run: |
+          set -e
+
+          FILE="kernel/include/linux/compiler_types.h"
+
+          python3 - "$FILE" <<'PY'
+          import pathlib
+          import sys
+
+          path = pathlib.Path(sys.argv[1])
           source = path.read_text()
 
           marker = "#if __has_attribute(__fallthrough__)"
@@ -66,67 +106,14 @@ jobs:
           )
 
           if marker not in source:
-              raise SystemExit(
-                  "ERROR: compiler_types.h marker not found"
-              )
+              raise SystemExit("ERROR: Expected compiler macro not found")
 
           if "#ifndef __has_attribute" not in source:
-              source = source.replace(
-                  marker, fallback + marker, 1
-              )
+              source = source.replace(marker, fallback + marker, 1)
               path.write_text(source)
 
           print("Compiler macro compatibility verified")
-
-          path = Path("arch/arm64/Makefile")
-          source = path.read_text()
-
-          if "-mno-implicit-float" not in source:
-              raise SystemExit(
-                  "ERROR: ARM64 compiler flag not found. "
-                  "Build stopped to avoid wasting another run."
-              )
-
-          source = source.replace(
-              "-mno-implicit-float",
-              "-mgeneral-regs-only"
-          )
-
-          path.write_text(source)
-
-          if "-mno-implicit-float" in path.read_text():
-              raise SystemExit(
-                  "ERROR: Incorrect compiler flag still exists"
-              )
-
-          print("ARM64 GCC compiler flag corrected")
           PY
-
-          echo "Checking remaining incorrect compiler flags..."
-          if grep -R --include='Makefile*' \
-            --exclude-dir=.git \
-            -- '-mno-implicit-float' .; then
-            echo "ERROR: Incorrect compiler flag remains"
-            exit 1
-          fi
-
-          echo "Compiler flag audit passed"
-
-      - name: Verify GCC cross compiler
-        run: |
-          set -e
-
-          aarch64-linux-gnu-gcc --version
-
-          echo 'int main(void) { return 0; }' > test.c
-
-          aarch64-linux-gnu-gcc \
-            -mgeneral-regs-only \
-            -c test.c -o test.o
-
-          test -s test.o
-
-          echo "AARCH64 GCC TEST PASSED"
 
       - name: Prepare Sweet native configuration
         run: |
@@ -134,6 +121,7 @@ jobs:
 
           KERNEL="$GITHUB_WORKSPACE/kernel"
           OUT="$GITHUB_WORKSPACE/kernel-out"
+          CC_WRAPPER="$GITHUB_WORKSPACE/toolchain/aarch64-gcc-wrapper"
 
           mkdir -p "$OUT"
 
@@ -141,7 +129,7 @@ jobs:
 
           make O="$OUT" \
             ARCH=arm64 \
-            CC=aarch64-linux-gnu-gcc \
+            CC="$CC_WRAPPER" \
             HOSTCC=gcc \
             CROSS_COMPILE=aarch64-linux-gnu- \
             LLVM=0 \
@@ -161,7 +149,7 @@ jobs:
 
           make O="$OUT" \
             ARCH=arm64 \
-            CC=aarch64-linux-gnu-gcc \
+            CC="$CC_WRAPPER" \
             HOSTCC=gcc \
             CROSS_COMPILE=aarch64-linux-gnu- \
             LLVM=0 \
@@ -188,10 +176,12 @@ jobs:
 
           cd "$GITHUB_WORKSPACE/kernel"
 
+          CC_WRAPPER="$GITHUB_WORKSPACE/toolchain/aarch64-gcc-wrapper"
+
           make -j2 \
             O="$GITHUB_WORKSPACE/kernel-out" \
             ARCH=arm64 \
-            CC=aarch64-linux-gnu-gcc \
+            CC="$CC_WRAPPER" \
             HOSTCC=gcc \
             CROSS_COMPILE=aarch64-linux-gnu- \
             LLVM=0 \
@@ -201,6 +191,7 @@ jobs:
           echo "KERNEL COMPILATION FINISHED"
 
       - name: Collect kernel build outputs
+        if: success()
         run: |
           set -e
 
