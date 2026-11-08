@@ -23,24 +23,30 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             git bc bison flex build-essential \
-            clang-18 lld-18 llvm-18 \
+            gcc-aarch64-linux-gnu \
+            binutils-aarch64-linux-gnu \
             libssl-dev libelf-dev libncurses-dev \
             python3 python-is-python3 \
             dwarves device-tree-compiler
 
-      - name: Checkout audited kernel source
+      - name: Download audited Sweet kernel source
         run: |
           set -e
-          mkdir -p kernel
-          git -C kernel init
+
+          git init kernel
+
           git -C kernel remote add origin \
             https://github.com/LineageOS/android_kernel_xiaomi_sm6150.git
+
           git -C kernel fetch --depth=1 origin \
             e03e5ba22586be70673afb5d3c3f70510524e658
+
           git -C kernel checkout FETCH_HEAD
 
           git -C kernel rev-parse HEAD \
             > kernel-commit.txt
+
+          echo "Kernel source downloaded successfully"
 
       - name: Prepare Sweet native configuration
         run: |
@@ -53,8 +59,9 @@ jobs:
 
           cd "$KERNEL"
 
-          make O="$OUT" ARCH=arm64 \
-            CC=clang-18 LLVM=1 LLVM_IAS=1 \
+          make O="$OUT" \
+            ARCH=arm64 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
             vendor/sdmsteppe-perf_defconfig
 
           cat > "$GITHUB_WORKSPACE/native.config" <<'EOF'
@@ -69,11 +76,12 @@ jobs:
             "$KERNEL/arch/arm64/configs/vendor/sweet.config" \
             "$GITHUB_WORKSPACE/native.config"
 
-          make O="$OUT" ARCH=arm64 \
-            CC=clang-18 LLVM=1 LLVM_IAS=1 \
+          make O="$OUT" \
+            ARCH=arm64 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
             olddefconfig
 
-      - name: Verify required configuration
+      - name: Verify kernel configuration
         run: |
           set -e
 
@@ -97,56 +105,73 @@ jobs:
           make -j2 \
             O="$GITHUB_WORKSPACE/kernel-out" \
             ARCH=arm64 \
-            CC=clang-18 \
-            LLVM=1 \
-            LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
             Image.gz dtbs
 
-      - name: Collect build outputs
+          echo "KERNEL COMPILATION FINISHED"
+
+      - name: Collect kernel build outputs
         run: |
           set -e
 
-          KERNEL="$GITHUB_WORKSPACE/kernel"
           OUT="$GITHUB_WORKSPACE/kernel-out"
           DIST="$GITHUB_WORKSPACE/dist"
 
-          mkdir -p "$DIST/device-trees"
+          mkdir -p "$DIST"
 
           IMAGE="$OUT/arch/arm64/boot/Image.gz"
+          DTB_DIR="$OUT/arch/arm64/boot/dts"
 
           test -s "$IMAGE"
+
           cp "$IMAGE" "$DIST/Image.gz"
-
-          if [ -d "$OUT/arch/arm64/boot/dts" ]; then
-            find "$OUT/arch/arm64/boot/dts" \
-              -type f \( -name '*.dtb' -o -name '*.dtbo' \) \
-              -exec cp --parents {} "$DIST/device-trees/" \;
-          fi
-
           cp "$OUT/.config" "$DIST/kernel.config"
           cp "$GITHUB_WORKSPACE/kernel-commit.txt" "$DIST/"
 
+          if [ -d "$DTB_DIR" ]; then
+            tar -czf "$DIST/device-trees.tar.gz" \
+              -C "$OUT/arch/arm64/boot" dts
+          fi
+
           {
-            echo "Sweet ARM64 Kernel Build"
-            echo "========================"
+            echo "Sweet ARM64 Kernel Build Report"
+            echo "================================"
             echo
-            echo "Source commit:"
+            echo "Kernel commit:"
             cat "$DIST/kernel-commit.txt"
             echo
             echo "Compiler:"
-            clang-18 --version
+            aarch64-linux-gnu-gcc --version
             echo
             echo "Kernel image:"
             ls -lh "$DIST/Image.gz"
             echo
-            echo "Device tree files:"
-            find "$DIST/device-trees" -type f
+            echo "Device tree archive:"
+            if [ -f "$DIST/device-trees.tar.gz" ]; then
+              ls -lh "$DIST/device-trees.tar.gz"
+            else
+              echo "DTB archive not found"
+            fi
+            echo
+            echo "Configuration:"
+            grep -E '^(CONFIG_DEVTMPFS|CONFIG_DEVTMPFS_MOUNT|CONFIG_FUSE_FS|CONFIG_MACH_XIAOMI_SWEET)=' \
+              "$DIST/kernel.config"
           } > "$DIST/build-report.txt"
 
           cd "$DIST"
-          sha256sum Image.gz kernel.config \
-            kernel-commit.txt build-report.txt \
+
+          sha256sum \
+            Image.gz \
+            kernel.config \
+            kernel-commit.txt \
+            build-report.txt \
             > SHA256SUMS
+
+          if [ -f device-trees.tar.gz ]; then
+            sha256sum device-trees.tar.gz >> SHA256SUMS
+          fi
+
+          echo "ARTIFACTS READY"
 
       - name: Upload kernel artifacts
         if: always()
