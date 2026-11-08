@@ -59,7 +59,7 @@ jobs:
                 network-manager iproute2 iputils-ping net-tools \
                 openssh-server curl wget git nano vim-tiny less \
                 bash-completion pciutils usbutils xz-utils zstd \
-                rsync parted e2fsprogs dosfstools \
+                rsync parted e2fsprogs dosfstools file \
                 kbd console-setup
 
               echo "=== INSTALL LOMIRI ==="
@@ -82,14 +82,9 @@ jobs:
               passwd -l root
 
               echo "=== PREPARE NATIVE MOUNTPOINTS ==="
-              mkdir -p \
-                /proc \
-                /sys \
-                /dev \
-                /run \
-                /tmp
+              mkdir -p /proc /sys /dev /run /tmp
 
-              chmod 0755 /proc /sys /dev /run
+              chmod 0755 /proc /dev /run
               chmod 1777 /tmp
 
               echo "=== VALIDATE SYSTEM ==="
@@ -106,6 +101,7 @@ jobs:
               test -d /dev
               test -d /run
               test -d /tmp
+              test -x /usr/bin/file
 
               echo "=== WRITE BUILD INFO ==="
               {
@@ -137,7 +133,7 @@ jobs:
                 -cpf /out/ubuntu-noble-sweet-arm64.tar \
                 -C / .
 
-              echo "=== VERIFY MOUNTPOINTS IN ARCHIVE ==="
+              echo "=== VERIFY MOUNTPOINTS ==="
               for dir in proc sys dev run tmp; do
                 tar -tf /out/ubuntu-noble-sweet-arm64.tar \
                   "./${dir}" "./${dir}/" >/dev/null
@@ -162,7 +158,6 @@ jobs:
 
           sha256sum -c SHA256SUMS
 
-          echo "=== VERIFY ARCHIVE ==="
           tar -tf ubuntu-noble-sweet-arm64.tar > archive-list.txt
 
           for dir in proc sys dev run tmp; do
