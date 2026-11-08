@@ -1,65 +1,202 @@
-name: Build UT Sweet
+
+name: Native Sweet ARM64 Rootfs
+
 on:
   workflow_dispatch:
-  push:
-    branches: [ main, lineage-24.0 ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-sweet-rootfs
+  cancel-in-progress: true
 
 jobs:
-  build-kernel:
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Configure Git
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git config --global --add safe.directory '*'
+  build-rootfs:
+    name: Build Ubuntu Noble ARM64 + Lomiri
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
 
-      - name: Checkout Device Tree
+    steps:
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Dependencies
-        run: |
-          sudo apt update && sudo apt install -y bc bison build-essential curl flex git \
-            libssl-dev libelf-dev lz4 wget xz-utils zip python3 gcc-aarch64-linux-gnu \
-            gcc-arm-linux-gnueabihf make clang llvm lld
+      - name: Setup ARM64 QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
 
+      - name: Prepare output
+        run: mkdir -p out
 
-      - name: Clone Kernel Source
+      - name: Build Ubuntu ARM64 RootFS
         shell: bash
         run: |
           set -Eeuo pipefail
 
-          echo "=== CLONE SWEET KERNEL ==="
+          docker run --rm \
+            --platform linux/arm64 \
+            -v "$GITHUB_WORKSPACE/out:/out" \
+            ubuntu:24.04 \
+            bash -euxo pipefail -c '
+              export DEBIAN_FRONTEND=noninteractive
 
-          git clone --depth=1 \
-            --single-branch \
-            -b lineage-23.2 \
-            https://github.com/LineageOS/android_kernel_xiaomi_sm6150.git \
-            kernel
+              echo "=== CHECK ARCHITECTURE ==="
+              test "$(dpkg --print-architecture)" = arm64
 
-          echo "=== VERIFY KERNEL ==="
-          test -f kernel/Makefile
+              echo "=== CONFIGURE UBUNTU ==="
+              apt-get update
 
-          cd kernel
-          echo "=== KERNEL SOURCE READY ==="
-          ls -la
-          git log -1 --oneline
+              apt-get install -y --no-install-recommends \
+                ca-certificates locales tzdata
 
+              locale-gen en_US.UTF-8
 
-      - name: Build Kernel
+              echo "=== INSTALL SYSTEM ==="
+              apt-get install -y \
+                systemd systemd-sysv dbus dbus-user-session \
+                sudo udev kmod initramfs-tools initramfs-tools-core \
+                network-manager iproute2 iputils-ping net-tools \
+                openssh-server curl wget git nano vim-tiny less \
+                bash-completion pciutils usbutils xz-utils zstd \
+                rsync parted e2fsprogs dosfstools file \
+                kbd console-setup
+
+              echo "=== INSTALL LOMIRI ==="
+              apt-get install -y lomiri
+
+              echo "=== CONFIGURE ROOTFS ==="
+              echo "ubuntu-sweet" > /etc/hostname
+
+              printf "%s\n" \
+                "127.0.0.1 localhost" \
+                "127.0.1.1 ubuntu-sweet" \
+                "::1 localhost ip6-localhost ip6-loopback" \
+                > /etc/hosts
+
+              printf "%s\n" "LANG=en_US.UTF-8" > /etc/locale.conf
+
+              ln -sf /usr/share/zoneinfo/Asia/Jakarta /etc/localtime
+              echo "Asia/Jakarta" > /etc/timezone
+
+              passwd -l root
+
+              echo "=== PREPARE MOUNTPOINTS ==="
+              mkdir -p /proc /sys /dev /run /tmp
+
+              echo "=== VALIDATE SYSTEM ==="
+              dpkg --audit
+
+              dpkg-query -W \
+                -f='\''${Package} ${Version} ${Architecture}\n'\'' \
+                systemd systemd-sysv lomiri
+
+              test -x /lib/systemd/systemd
+              test -d /etc/systemd
+              test -x /usr/bin/file
+
+              echo "=== WRITE BUILD INFO ==="
+              {
+                echo "DEVICE=sweet"
+                echo "ARCH=arm64"
+                echo "OS=Ubuntu 24.04 Noble"
+                echo "DESKTOP=Lomiri"
+                echo "INIT=systemd"
+                echo "BUILD_TYPE=rootfs-only"
+                echo "FLASHABLE=no"
+                echo "DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+              } > /out/build-info.txt
+
+              echo "=== CLEAN APT ==="
+              apt-get clean
+              rm -rf /var/lib/apt/lists/*
+
+              echo "=== PREPARE EMPTY MOUNTPOINTS ==="
+              mkdir -p /out/mountpoints
+              mkdir -p /out/mountpoints/proc
+              mkdir -p /out/mountpoints/sys
+              mkdir -p /out/mountpoints/dev
+              mkdir -p /out/mountpoints/run
+              mkdir -p /out/mountpoints/tmp
+
+              chmod 0755 \
+                /out/mountpoints/proc \
+                /out/mountpoints/sys \
+                /out/mountpoints/dev \
+                /out/mountpoints/run
+
+              chmod 1777 /out/mountpoints/tmp
+
+              echo "=== EXPORT ROOTFS ==="
+              tar \
+                --numeric-owner \
+                --xattrs \
+                --acls \
+                --exclude=./proc \
+                --exclude=./sys \
+                --exclude=./dev \
+                --exclude=./run \
+                --exclude=./tmp \
+                --exclude=./out \
+                -cpf /out/ubuntu-noble-sweet-arm64.tar \
+                -C / .
+
+              echo "=== ADD EMPTY MOUNTPOINTS ==="
+              tar \
+                --numeric-owner \
+                --append \
+                -f /out/ubuntu-noble-sweet-arm64.tar \
+                -C /out/mountpoints \
+                proc sys dev run tmp
+
+              echo "=== VERIFY MOUNTPOINTS ==="
+              tar -tf /out/ubuntu-noble-sweet-arm64.tar \
+                > /out/archive-list.txt
+
+              for dir in proc sys dev run tmp; do
+                grep -Eq "^(\./)?${dir}/?$" /out/archive-list.txt
+              done
+
+              echo "=== CREATE CHECKSUM ==="
+              cd /out
+              sha256sum ubuntu-noble-sweet-arm64.tar > SHA256SUMS
+
+              echo "=== BUILD COMPLETE ==="
+              ls -lh ubuntu-noble-sweet-arm64.tar
+            '
+
+      - name: Verify RootFS artifact
+        shell: bash
         run: |
-          cd kernel
-          make -j$(nproc) ARCH=arm64 CC=clang sweet_defconfig
-          make -j$(nproc) ARCH=arm64 CC=clang \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_ARM32=arm-linux-gnueabihf-
+          set -Eeuo pipefail
+          cd out
 
-      - name: Upload Kernel Artifacts
+          test -s ubuntu-noble-sweet-arm64.tar
+          test -s SHA256SUMS
+          test -s build-info.txt
+
+          sha256sum -c SHA256SUMS
+
+          tar -tf ubuntu-noble-sweet-arm64.tar > archive-list.txt
+
+          for dir in proc sys dev run tmp; do
+            grep -Eq "^(\./)?${dir}/?$" archive-list.txt
+          done
+
+          echo "=== BUILD INFO ==="
+          cat build-info.txt
+
+          echo "=== ARTIFACT SIZE ==="
+          ls -lh ubuntu-noble-sweet-arm64.tar
+
+      - name: Upload Ubuntu ARM64 RootFS
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-sweet
+          name: ubuntu-noble-sweet-arm64-rootfs
           path: |
-            kernel/arch/arm64/boot/Image
-            kernel/arch/arm64/boot/dtbo.img
-            kernel/arch/arm64/boot/dts/qcom/sm7150-sweet.dtb
-          retention-days: 30
+            out/ubuntu-noble-sweet-arm64.tar
+            out/SHA256SUMS
+            out/build-info.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
