@@ -134,6 +134,7 @@ jobs:
             O="$GITHUB_WORKSPACE/kernel-out" \
             ARCH=arm64 \
             CROSS_COMPILE=aarch64-linux-gnu- \
+            KCFLAGS="-Wno-error=maybe-uninitialized" \
             Image.gz dtbs
 
           echo "KERNEL COMPILATION FINISHED"
