@@ -46,39 +46,13 @@ jobs:
 
               echo "=== INSTALL BASE SYSTEM ==="
               apt-get install -y --no-install-recommends \
-                systemd \
-                systemd-sysv \
-                dbus \
-                dbus-user-session \
-                sudo \
-                udev \
-                kmod \
-                initramfs-tools \
-                initramfs-tools-core \
-                network-manager \
-                iproute2 \
-                iputils-ping \
-                net-tools \
-                openssh-server \
-                curl \
-                wget \
-                git \
-                nano \
-                vim-tiny \
-                less \
-                bash-completion \
-                pciutils \
-                usbutils \
-                xz-utils \
-                zstd \
-                rsync \
-                parted \
-                e2fsprogs \
-                dosfstools \
-                file \
-                ca-certificates \
-                locales \
-                tzdata
+                systemd systemd-sysv dbus dbus-user-session \
+                sudo udev kmod initramfs-tools initramfs-tools-core \
+                network-manager iproute2 iputils-ping net-tools \
+                openssh-server curl wget git nano vim-tiny less \
+                bash-completion pciutils usbutils xz-utils zstd \
+                rsync parted e2fsprogs dosfstools file \
+                ca-certificates locales tzdata
 
               echo "=== INSTALL LOMIRI ==="
               apt-get install -y lomiri
@@ -100,13 +74,7 @@ jobs:
 
               passwd -l root || true
 
-              mkdir -p \
-                /proc \
-                /sys \
-                /dev \
-                /run \
-                /tmp
-
+              mkdir -p /proc /sys /dev /run /tmp
               chmod 0755 /proc /dev /run
               chmod 1777 /tmp
 
@@ -123,17 +91,8 @@ jobs:
               EOF
 
               echo "=== PREPARE EMPTY MOUNTPOINTS ==="
-              mkdir -p /out/mountpoints
-              mkdir -p /out/mountpoints/proc
-              mkdir -p /out/mountpoints/sys
-              mkdir -p /out/mountpoints/dev
-              mkdir -p /out/mountpoints/run
-              mkdir -p /out/mountpoints/tmp
-
-              chmod 0755 /out/mountpoints/proc
-              chmod 0755 /out/mountpoints/sys
-              chmod 0755 /out/mountpoints/dev
-              chmod 0755 /out/mountpoints/run
+              mkdir -p /out/mountpoints/{proc,sys,dev,run,tmp}
+              chmod 0755 /out/mountpoints/{proc,sys,dev,run}
               chmod 1777 /out/mountpoints/tmp
 
               echo "=== EXPORT ROOTFS ==="
@@ -158,7 +117,7 @@ jobs:
                 -C /out/mountpoints \
                 proc sys dev run tmp
 
-              echo "=== VERIFY ROOTFS ARCHIVE ==="
+              echo "=== VERIFY ARCHIVE ==="
               archive_listing="$(tar -tf /out/ubuntu-noble-sweet-arm64.tar)"
 
               for dir in proc sys dev run tmp; do
@@ -169,20 +128,22 @@ jobs:
                 echo "Mountpoint $dir: OK"
               done
 
-              echo "=== CREATE CHECKSUM ==="
-              cd /out
-              sha256sum ubuntu-noble-sweet-arm64.tar > SHA256SUMS
-
-              echo "=== BUILD COMPLETED ==="
+              echo "=== ROOTFS EXPORT COMPLETED ==="
               ls -lh /out/ubuntu-noble-sweet-arm64.tar
-              cat /out/SHA256SUMS
             '
 
-      - name: Verify RootFS on Runner
+      - name: Create Checksum and Verify RootFS
         run: |
           set -Eeuo pipefail
 
-          cd out
+          cd "$GITHUB_WORKSPACE/out"
+
+          echo "=== CHECK OUTPUT FILES ==="
+          test -s ubuntu-noble-sweet-arm64.tar
+          test -s build-info.txt
+
+          echo "=== CREATE SHA256 ==="
+          sha256sum ubuntu-noble-sweet-arm64.tar > SHA256SUMS
 
           echo "=== VERIFY SHA256 ==="
           sha256sum -c SHA256SUMS
@@ -195,15 +156,13 @@ jobs:
               echo "ERROR: Mountpoint $dir tidak ditemukan!"
               exit 1
             fi
-
             echo "Mountpoint $dir: OK"
           done
 
-          echo "=== VERIFY BUILD INFO ==="
-          test -s build-info.txt
+          echo "=== BUILD INFO ==="
           cat build-info.txt
 
-          echo "=== ROOTFS VERIFICATION PASSED ==="
+          echo "=== ALL VERIFICATIONS PASSED ==="
           ls -lh ubuntu-noble-sweet-arm64.tar SHA256SUMS build-info.txt
 
       - name: Upload RootFS Artifact
