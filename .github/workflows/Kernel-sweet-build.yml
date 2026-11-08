@@ -125,6 +125,37 @@ jobs:
               raise SystemExit("ERROR: q6asm format fix verification failed")
           PY
 
+      - name: Fix IPA QDSS pointer format
+        run: |
+          set -e
+
+          FILE="kernel/drivers/platform/msm/ipa/ipa_v3/ipa_qdss.c"
+
+          python3 - "$FILE" <<'PY'
+          import pathlib
+          import sys
+
+          path = pathlib.Path(sys.argv[1])
+          source = path.read_text()
+
+          old = 'Failed allocating gsi_chan_hdl=%d'
+          new = 'Failed allocating gsi_chan_hdl=%p'
+
+          if new in source:
+              print("IPA QDSS pointer format fix already applied")
+          elif source.count(old) == 1:
+              source = source.replace(old, new, 1)
+              path.write_text(source)
+              print("IPA QDSS pointer format fixed")
+          else:
+              raise SystemExit(
+                  "ERROR: Expected IPA QDSS format string not found exactly once"
+              )
+
+          if new not in path.read_text():
+              raise SystemExit("ERROR: IPA QDSS format fix verification failed")
+          PY
+
       - name: Prepare GCC compatibility wrapper
         run: |
           set -e
@@ -272,7 +303,7 @@ jobs:
             CROSS_COMPILE=aarch64-linux-gnu- \
             LLVM=0 \
             LD=ld.lld-18 \
-            KCFLAGS="-Wno-error=maybe-uninitialized -Wno-error=address -Wno-error=format" \
+            KCFLAGS="-Wno-error -Wno-error=maybe-uninitialized -Wno-error=address -Wno-error=format" \
             Image.gz dtbs
 
           echo "KERNEL COMPILATION FINISHED"
