@@ -28,31 +28,70 @@ jobs:
 
       - name: Prepare output directory
         run: |
-          mkdir -p out
+          set -Eeuo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          chmod 0777 "$GITHUB_WORKSPACE/out"
+
+          echo "=== HOST OUTPUT DIRECTORY ==="
+          ls -ld "$GITHUB_WORKSPACE/out"
 
       - name: Build Ubuntu ARM64 RootFS
         run: |
+          set -Eeuo pipefail
+
           docker run --rm \
             --platform linux/arm64 \
-            -v "$GITHUB_WORKSPACE/out:/out" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/out,target=/out" \
             ubuntu:24.04 \
             bash -Eeuo pipefail -c '
+
               export DEBIAN_FRONTEND=noninteractive
               export TZ=Asia/Jakarta
               umask 022
+
+              echo "=== CHECK DOCKER OUTPUT MOUNT ==="
+              ls -ld /out
+              touch /out/docker-write-test
+              ls -lah /out
 
               echo "=== UPDATE UBUNTU ==="
               apt-get update
 
               echo "=== INSTALL BASE SYSTEM ==="
               apt-get install -y --no-install-recommends \
-                systemd systemd-sysv dbus dbus-user-session \
-                sudo udev kmod initramfs-tools initramfs-tools-core \
-                network-manager iproute2 iputils-ping net-tools \
-                openssh-server curl wget git nano vim-tiny less \
-                bash-completion pciutils usbutils xz-utils zstd \
-                rsync parted e2fsprogs dosfstools file \
-                ca-certificates locales tzdata
+                systemd \
+                systemd-sysv \
+                dbus \
+                dbus-user-session \
+                sudo \
+                udev \
+                kmod \
+                initramfs-tools \
+                initramfs-tools-core \
+                network-manager \
+                iproute2 \
+                iputils-ping \
+                net-tools \
+                openssh-server \
+                curl \
+                wget \
+                git \
+                nano \
+                vim-tiny \
+                less \
+                bash-completion \
+                pciutils \
+                usbutils \
+                xz-utils \
+                zstd \
+                rsync \
+                parted \
+                e2fsprogs \
+                dosfstools \
+                file \
+                ca-certificates \
+                locales \
+                tzdata
 
               echo "=== INSTALL LOMIRI ==="
               apt-get install -y lomiri
@@ -78,7 +117,7 @@ jobs:
               chmod 0755 /proc /dev /run
               chmod 1777 /tmp
 
-              echo "=== WRITE BUILD INFO ==="
+              echo "=== CREATE BUILD INFO ==="
               cat > /out/build-info.txt << EOF
               DEVICE=sweet
               ARCH=arm64
@@ -90,9 +129,19 @@ jobs:
               DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
               EOF
 
-              echo "=== PREPARE EMPTY MOUNTPOINTS ==="
-              mkdir -p /out/mountpoints/{proc,sys,dev,run,tmp}
-              chmod 0755 /out/mountpoints/{proc,sys,dev,run}
+              echo "=== PREPARE MOUNTPOINTS ==="
+              mkdir -p /out/mountpoints/proc
+              mkdir -p /out/mountpoints/sys
+              mkdir -p /out/mountpoints/dev
+              mkdir -p /out/mountpoints/run
+              mkdir -p /out/mountpoints/tmp
+
+              chmod 0755 \
+                /out/mountpoints/proc \
+                /out/mountpoints/sys \
+                /out/mountpoints/dev \
+                /out/mountpoints/run
+
               chmod 1777 /out/mountpoints/tmp
 
               echo "=== EXPORT ROOTFS ==="
@@ -117,7 +166,10 @@ jobs:
                 -C /out/mountpoints \
                 proc sys dev run tmp
 
-              echo "=== VERIFY ARCHIVE ==="
+              echo "=== VERIFY INSIDE DOCKER ==="
+              test -s /out/ubuntu-noble-sweet-arm64.tar
+              test -s /out/build-info.txt
+
               archive_listing="$(tar -tf /out/ubuntu-noble-sweet-arm64.tar)"
 
               for dir in proc sys dev run tmp; do
@@ -128,19 +180,56 @@ jobs:
                 echo "Mountpoint $dir: OK"
               done
 
+              echo "=== DOCKER OUTPUT FILES ==="
+              ls -lah /out
+              stat /out/ubuntu-noble-sweet-arm64.tar
+              stat /out/build-info.txt
+
               echo "=== ROOTFS EXPORT COMPLETED ==="
-              ls -lh /out/ubuntu-noble-sweet-arm64.tar
             '
+
+      - name: Inspect Host Output
+        run: |
+          set -Eeuo pipefail
+
+          echo "=== HOST WORKSPACE ==="
+          echo "$GITHUB_WORKSPACE"
+
+          echo "=== HOST OUTPUT DIRECTORY ==="
+          ls -lah "$GITHUB_WORKSPACE/out"
+
+          echo "=== CHECK DOCKER WRITE TEST ==="
+          if [ -f "$GITHUB_WORKSPACE/out/docker-write-test" ]; then
+            echo "Docker bind mount: OK"
+          else
+            echo "ERROR: Docker output mount tidak terbaca oleh Runner"
+            exit 1
+          fi
+
+          echo "=== CHECK ROOTFS FILE ==="
+          if [ -s "$GITHUB_WORKSPACE/out/ubuntu-noble-sweet-arm64.tar" ]; then
+            echo "RootFS TAR: FOUND"
+            ls -lh "$GITHUB_WORKSPACE/out/ubuntu-noble-sweet-arm64.tar"
+          else
+            echo "ERROR: RootFS TAR tidak ditemukan atau kosong"
+            find "$GITHUB_WORKSPACE/out" -maxdepth 3 -type f -printf '%p (%s bytes)\n'
+            exit 1
+          fi
+
+          echo "=== CHECK BUILD INFO ==="
+          if [ -s "$GITHUB_WORKSPACE/out/build-info.txt" ]; then
+            echo "Build info: FOUND"
+            cat "$GITHUB_WORKSPACE/out/build-info.txt"
+          else
+            echo "ERROR: build-info.txt tidak ditemukan atau kosong"
+            exit 1
+          fi
 
       - name: Create Checksum and Verify RootFS
         run: |
           set -Eeuo pipefail
 
           cd "$GITHUB_WORKSPACE/out"
-
-          echo "=== CHECK OUTPUT FILES ==="
-          test -s ubuntu-noble-sweet-arm64.tar
-          test -s build-info.txt
 
           echo "=== CREATE SHA256 ==="
           sha256sum ubuntu-noble-sweet-arm64.tar > SHA256SUMS
